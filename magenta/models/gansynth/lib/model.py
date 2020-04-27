@@ -42,7 +42,7 @@ def set_flags(flags):
   flags.set_if_empty('train_root_dir', '/tmp/gansynth/train')
   flags.set_if_empty('train_data_path', '/tmp/gansynth/nsynth-train.tfrecord')
   flags.set_if_empty('train_meta_path', '')
-  flags.set_if_empty('train_instrument_sources', [0])
+  flags.set_if_empty('train_instrument_sources', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
   flags.set_if_empty('train_min_pitch', 24)
   flags.set_if_empty('train_max_pitch', 84)
 
@@ -377,7 +377,7 @@ class Model(object):
     labels_ph = tf.placeholder(tf.int32, [batch_size])
     noises_ph = tf.placeholder(tf.float32, [batch_size,
                                             config['latent_vector_size']])
-    num_pitches = len(pitch_counts)
+    num_pitches = len(pitch_counts) + 11
     one_hot_labels_ph = tf.one_hot(labels_ph, num_pitches)
     with load_scope:
       fake_data_ph, _ = g_fn((noises_ph, one_hot_labels_ph))

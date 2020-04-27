@@ -92,7 +92,14 @@ class NSynthTFRecordDataset(BaseDataset):
     counts = [pitch_counts[p] for p in pitches]
     indices = tf.reshape(
         tf.multinomial(tf.log([tf.to_float(counts)]), batch_size), [batch_size])
-    one_hot_labels = tf.one_hot(indices, depth=len(pitches))
+    pitch_one_hot_labels = tf.one_hot(indices, depth=len(pitches))
+
+    instrument_family_count = 11 # TODO: Remove hard coding
+    indices = tf.random.uniform([batch_size], minval=0, maxval=instrument_family_count, dtype=tf.int64)
+    instrument_one_hot_labels = tf.one_hot(indices, depth=instrument_family_count)
+
+    one_hot_labels = tf.concat([pitch_one_hot_labels, instrument_one_hot_labels], axis=1)
+    
     return one_hot_labels
 
   def provide_dataset(self):
@@ -120,8 +127,12 @@ class NSynthTFRecordDataset(BaseDataset):
       wave = spectral_ops.crop_or_pad(wave[tf.newaxis, :, tf.newaxis],
                                       length,
                                       channels)[0]
-      one_hot_label = tf.one_hot(
+      pitch_one_hot_label = tf.one_hot(
           label_index_table.lookup(label), depth=len(pitches))[0]
+      #Todo remove hardcoded instrument family count
+      instrument_one_hot_label = tf.one_hot(
+          example['instrument_family'], depth=11)[0]
+      one_hot_label = tf.concat([pitch_one_hot_label, instrument_one_hot_label], axis=0)
       return wave, one_hot_label, label, example['instrument_source']
 
     dataset = self._get_dataset_from_path()
