@@ -74,8 +74,10 @@ def discriminator_fn_specgram(images, **kwargs):
       simple_arch=kwargs['simple_arch'])
   with tf.variable_scope('discriminator_cond'):
     x = contrib_layers.flatten(end_points['last_conv'])
-    end_points['classification_logits'] = layers.custom_dense(
-        x=x, units=kwargs['total_num_tokens'], scope='classification_logits')
+    end_points['pitch_classification_logits'] = layers.custom_dense(
+        x=x, units=kwargs['pitch_num_tokens'], scope='pitch_classification_logits')
+    end_points['instrument_classification_logits'] = layers.custom_dense(
+        x=x, units=kwargs['instrument_num_tokens'], scope='instrument_classification_logits')
   return logits, end_points
 
 
