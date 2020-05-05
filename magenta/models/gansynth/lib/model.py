@@ -200,8 +200,8 @@ class Model(object):
     real_images, real_one_hot_labels = data_helper.provide_data(batch_size)
 
     # gen_one_hot_labels = real_one_hot_labels
-    gen_one_hot_labels = data_helper.provide_one_hot_labels(batch_size)
-    num_tokens = real_one_hot_labels.shape[1].value
+    gen_one_hot_labels, token_counts = data_helper.provide_one_hot_labels(batch_size)
+    total_num_tokens = np.sum(token_counts)
 
     current_image_id = tf.train.get_or_create_global_step()
     current_image_id_inc_op = current_image_id.assign_add(batch_size)
@@ -246,7 +246,7 @@ class Model(object):
     config['num_blocks'] = num_blocks
     config['num_images'] = num_images
     config['progress'] = progress
-    config['num_tokens'] = num_tokens
+    config['total_num_tokens'] = total_num_tokens
     tf.summary.scalar('progress', progress)
 
     real_images = networks.blend_images(
@@ -375,12 +375,15 @@ class Model(object):
 
     # (label_ph, noise_ph) -> fake_wave_ph
     labels_ph = tf.placeholder(tf.int32, [batch_size])
+    instrument_ph = tf.placeholder(tf.int32, [batch_size])
     noises_ph = tf.placeholder(tf.float32, [batch_size,
                                             config['latent_vector_size']])
-    num_pitches = len(pitch_counts) + 11
+    num_pitches = len(pitch_counts)
     one_hot_labels_ph = tf.one_hot(labels_ph, num_pitches)
+    one_hot_instrument_ph = tf.one_hot(instrument_ph, 11)
+    one_hot_labels_ph_ph = tf.concat([one_hot_labels_ph, one_hot_instrument_ph], axis=1)
     with load_scope:
-      fake_data_ph, _ = g_fn((noises_ph, one_hot_labels_ph))
+      fake_data_ph, _ = g_fn((noises_ph, one_hot_labels_ph_ph))
       fake_waves_ph = data_helper.data_to_waves(fake_data_ph)
 
     if config['train_time_limit'] is not None:
@@ -416,12 +419,14 @@ class Model(object):
     self.pitch_counts = pitch_counts
     self.pitch_to_label_dict = pitch_to_label_dict
     self.labels_ph = labels_ph
+    self.instrument_ph = instrument_ph
     self.noises_ph = noises_ph
     self.fake_waves_ph = fake_waves_ph
     self.saver = tf.train.Saver()
     self.sess = tf.Session()
     self.train_time = train_time
     self.stage_train_time_limit = stage_train_time_limit
+    self.token_counts = token_counts
 
   def add_summaries(self):
     """Adds model summaries."""
@@ -449,10 +454,14 @@ class Model(object):
     # `_custom_getter`.
     with self.load_scope:
       noises = train_util.make_latent_vectors(fake_batch_size, **config)
-      one_hot_labels = util.make_ordered_one_hot_vectors(fake_batch_size,
-                                                         num_tokens)
 
-      fake_images = self.gan_model.generator_fn((noises, one_hot_labels))
+      all_one_hot_labels = []
+      for token_count in self.token_counts:
+        one_hot_labels = util.make_ordered_one_hot_vectors(fake_batch_size, token_count)
+        all_one_hot_labels.append(one_hot_labels)
+      all_one_hot_labels = tf.concat(all_one_hot_labels, axis=1)
+
+      fake_images = self.gan_model.generator_fn((noises, all_one_hot_labels))
       real_images = self.real_images
 
     # Set shapes
@@ -487,7 +496,7 @@ class Model(object):
   def generate_z(self, n):
     return np.random.normal(size=[n, self.config['latent_vector_size']])
 
-  def generate_samples(self, n_samples, pitch=None, max_audio_length=64000):
+  def generate_samples(self, n_samples, pitch=None, max_audio_length=64000, extra_labels=None):
     """Generate random latent fake samples.
 
     If pitch is not specified, pitches will be sampled randomly.
@@ -509,9 +518,9 @@ class Model(object):
         all_pitches.extend([k]*v)
       pitches = np.random.choice(all_pitches, n_samples)
     z = self.generate_z(len(pitches))
-    return self.generate_samples_from_z(z, pitches, max_audio_length)
+    return self.generate_samples_from_z(z, pitches, max_audio_length, extra_labels)
 
-  def generate_samples_from_z(self, z, pitches, max_audio_length=64000):
+  def generate_samples_from_z(self, z, pitches, max_audio_length=64000, extra_labels=None):
     """Generate fake samples for given latents and pitches.
 
     Args:
@@ -523,6 +532,7 @@ class Model(object):
       audio: Generated audio waveforms [n_samples, max_audio_length]
     """
     labels = self._pitches_to_labels(pitches)
+    
     n_samples = len(labels)
     num_batches = int(np.ceil(float(n_samples) / self.batch_size))
     n_tot = num_batches * self.batch_size
@@ -538,8 +548,12 @@ class Model(object):
       start = i * self.batch_size
       end = (i + 1) * self.batch_size
 
+      lbs = labels[start:end]
+      
+
       waves = self.sess.run(self.fake_waves_ph,
-                            feed_dict={self.labels_ph: labels[start:end],
+                            feed_dict={self.labels_ph: lbs,
+                                       self.instrument_ph: [0, 0, 0, 0, 0, 0, 0, 0],
                                        self.noises_ph: z[start:end]})
       # Trim waves
       for wave in waves:

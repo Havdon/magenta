@@ -99,8 +99,7 @@ class NSynthTFRecordDataset(BaseDataset):
     instrument_one_hot_labels = tf.one_hot(indices, depth=instrument_family_count)
 
     one_hot_labels = tf.concat([pitch_one_hot_labels, instrument_one_hot_labels], axis=1)
-    
-    return one_hot_labels
+    return one_hot_labels, [pitch_one_hot_labels.shape[1].value, instrument_one_hot_labels.shape[1].value]
 
   def provide_dataset(self):
     """Provides dataset (audio, labels) of nsynth."""
