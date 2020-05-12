@@ -42,7 +42,7 @@ def set_flags(flags):
   flags.set_if_empty('train_root_dir', '/tmp/gansynth/train')
   flags.set_if_empty('train_data_path', '/tmp/gansynth/nsynth-train.tfrecord')
   flags.set_if_empty('train_meta_path', '')
-  flags.set_if_empty('train_instrument_sources', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+  flags.set_if_empty('train_instrument_sources', [0])
   flags.set_if_empty('train_min_pitch', 24)
   flags.set_if_empty('train_max_pitch', 84)
 
