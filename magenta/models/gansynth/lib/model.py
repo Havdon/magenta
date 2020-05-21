@@ -197,9 +197,9 @@ class Model(object):
       config: (dict) All the global state.
     """
     data_helper = data_helpers.registry[config['data_type']](config)
-    real_images, real_pitch_one_hot_labels, real_instrument_one_hot_labels = data_helper.provide_data(batch_size)
+    real_images, real_pitch_one_hot_labels, real_instrument_one_hot_labels, real_velocity_one_hot_labels = data_helper.provide_data(batch_size)
 
-    gen_pitch_one_hot_labels, gen_instrument_one_hot_labels, token_counts = data_helper.provide_one_hot_labels(batch_size)
+    gen_pitch_one_hot_labels, gen_instrument_one_hot_labels, gen_velocity_one_hot_labels, token_counts = data_helper.provide_one_hot_labels(batch_size)
     total_num_tokens = np.sum(token_counts)
 
     current_image_id = tf.train.get_or_create_global_step()
@@ -247,6 +247,7 @@ class Model(object):
     config['progress'] = progress
     config['pitch_num_tokens'] = token_counts[0]
     config['instrument_num_tokens'] = token_counts[1]
+    config['velocity_num_tokens'] = token_counts[2]
     tf.summary.scalar('progress', progress)
 
     real_images = networks.blend_images(
@@ -264,13 +265,13 @@ class Model(object):
         generator_fn=lambda inputs: g_fn(inputs)[0],
         discriminator_fn=lambda images, unused_cond: d_fn(images)[0],
         real_data=real_images,
-        generator_inputs=(noises, gen_pitch_one_hot_labels, gen_instrument_one_hot_labels))
+        generator_inputs=(noises, gen_pitch_one_hot_labels, gen_instrument_one_hot_labels, gen_velocity_one_hot_labels))
 
     ########## Define loss.
     gan_loss = train_util.define_loss(gan_model, **config)
 
     ########## Auxiliary loss functions
-    def _compute_ac_loss(images, target_pitch_one_hot_labels, target_instrument_one_hot_labels):
+    def _compute_ac_loss(images, target_pitch_one_hot_labels, target_instrument_one_hot_labels, target_velocity_one_hot_labels):
       with tf.variable_scope(gan_model.discriminator_scope, reuse=True):
         _, end_points = d_fn(images)
 
@@ -280,7 +281,10 @@ class Model(object):
       instrument_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
               labels=tf.stop_gradient(target_instrument_one_hot_labels),
               logits=end_points['instrument_classification_logits'])
-      return tf.reduce_mean(pitch_loss + instrument_loss)
+      velocity_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
+              labels=tf.stop_gradient(target_velocity_one_hot_labels),
+              logits=end_points['velocity_classification_logits'])
+      return tf.reduce_mean(pitch_loss + instrument_loss + velocity_loss)
 
     def _compute_gl_consistency_loss(data):
       """G&L consistency loss."""
@@ -312,8 +316,8 @@ class Model(object):
 
       # AC losses.
       fake_ac_loss = _compute_ac_loss(gan_model.generated_data,
-                                      gen_pitch_one_hot_labels, gen_instrument_one_hot_labels)
-      real_ac_loss = _compute_ac_loss(gan_model.real_data, real_pitch_one_hot_labels, real_instrument_one_hot_labels)
+                                      gen_pitch_one_hot_labels, gen_instrument_one_hot_labels, gen_velocity_one_hot_labels)
+      real_ac_loss = _compute_ac_loss(gan_model.real_data, real_pitch_one_hot_labels, real_instrument_one_hot_labels, real_velocity_one_hot_labels)
 
       # GL losses.
       is_fourier = isinstance(data_helper, (data_helpers.DataSTFTHelper,
@@ -380,13 +384,15 @@ class Model(object):
     # (label_ph, noise_ph) -> fake_wave_ph
     labels_ph = tf.placeholder(tf.int32, [batch_size])
     instrument_ph = tf.placeholder(tf.int32, [batch_size])
+    velocity_ph = tf.placeholder(tf.int32, [batch_size])
     noises_ph = tf.placeholder(tf.float32, [batch_size,
                                             config['latent_vector_size']])
     num_pitches = len(pitch_counts)
     one_hot_labels_ph = tf.one_hot(labels_ph, num_pitches)
     one_hot_instrument_ph = tf.one_hot(instrument_ph, 11)
+    one_hot_velocity_ph = tf.one_hot(velocity_ph, 128)
     with load_scope:
-      fake_data_ph, _ = g_fn((noises_ph, one_hot_labels_ph, one_hot_instrument_ph))
+      fake_data_ph, _ = g_fn((noises_ph, one_hot_labels_ph, one_hot_instrument_ph, one_hot_velocity_ph))
       fake_waves_ph = data_helper.data_to_waves(fake_data_ph)
 
     if config['train_time_limit'] is not None:
@@ -419,11 +425,13 @@ class Model(object):
     self.real_images = real_images
     self.real_pitch_one_hot_labels = real_pitch_one_hot_labels
     self.real_instrument_one_hot_labels = real_instrument_one_hot_labels
+    self.real_velocity_one_hot_labels = real_velocity_one_hot_labels
     self.load_scope = load_scope
     self.pitch_counts = pitch_counts
     self.pitch_to_label_dict = pitch_to_label_dict
     self.labels_ph = labels_ph
     self.instrument_ph = instrument_ph
+    self.velocity_ph = velocity_ph
     self.noises_ph = noises_ph
     self.fake_waves_ph = fake_waves_ph
     self.saver = tf.train.Saver()
@@ -555,7 +563,8 @@ class Model(object):
 
       waves = self.sess.run(self.fake_waves_ph,
                             feed_dict={self.labels_ph: lbs,
-                                       self.instrument_ph: [0, 0, 0, 0, 0, 0, 0, 0],
+                                       self.instrument_ph: [4, 4, 4, 4, 4, 4, 4, 4],
+                                       self.velocity_ph: [60, 60, 60, 60, 60, 60, 60],
                                        self.noises_ph: z[start:end]})
       # Trim waves
       for wave in waves:

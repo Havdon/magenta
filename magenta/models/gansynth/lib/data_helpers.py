@@ -73,11 +73,12 @@ class DataHelper(object):
         tf.add_to_collection(tf.GraphKeys.TABLE_INITIALIZERS,
                              iterator.initializer)
 
-        data, pitch_one_hot_labels, instrument_one_hot_labels = iterator.get_next()
+        data, pitch_one_hot_labels, instrument_one_hot_labels, velocity_one_hot_labels = iterator.get_next()
         data.set_shape([batch_size, None, None, None])
         pitch_one_hot_labels.set_shape([batch_size, None])
         instrument_one_hot_labels.set_shape([batch_size, None])
-        return data, pitch_one_hot_labels, instrument_one_hot_labels
+        velocity_one_hot_labels.set_shape([batch_size, None])
+        return data, pitch_one_hot_labels, instrument_one_hot_labels, velocity_one_hot_labels
 
 
 class DataSTFTHelper(DataHelper):
@@ -94,10 +95,10 @@ class DataSTFTHelper(DataHelper):
         mel_downscale=1,
         ifreq=True)
 
-  def _map_fn(self, wave, pitch_one_hot_label, instrument_one_hot_labels):
+  def _map_fn(self, wave, pitch_one_hot_label, instrument_one_hot_labels, velocity_one_hot_labels):
     waves = wave[tf.newaxis, :, :]
     data = self.waves_to_data(waves)
-    return data[0], pitch_one_hot_label, instrument_one_hot_labels
+    return data[0], pitch_one_hot_label, instrument_one_hot_labels, velocity_one_hot_labels
 
   def data_to_waves(self, data):
     return self.specgrams_helper.specgrams_to_waves(data)

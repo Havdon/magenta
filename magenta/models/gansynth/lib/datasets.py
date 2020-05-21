@@ -98,7 +98,10 @@ class NSynthTFRecordDataset(BaseDataset):
     indices = tf.random.uniform([batch_size], minval=0, maxval=instrument_family_count, dtype=tf.int64)
     instrument_one_hot_labels = tf.one_hot(indices, depth=instrument_family_count)
 
-    return pitch_one_hot_labels, instrument_one_hot_labels, [pitch_one_hot_labels.shape[1].value, instrument_one_hot_labels.shape[1].value]
+    indices = tf.random.uniform([batch_size], minval=0, maxval=128, dtype=tf.int64)
+    velocity_one_hot_labels = tf.one_hot(indices, depth=128)
+
+    return pitch_one_hot_labels, instrument_one_hot_labels, velocity_one_hot_labels, [pitch_one_hot_labels.shape[1].value, instrument_one_hot_labels.shape[1].value, velocity_one_hot_labels.shape[1].value]
 
   def provide_dataset(self):
     """Provides dataset (audio, labels) of nsynth."""
@@ -114,6 +117,7 @@ class NSynthTFRecordDataset(BaseDataset):
       """Parsing function for NSynth dataset."""
       features = {
           'pitch': tf.FixedLenFeature([1], dtype=tf.int64),
+          'velocity': tf.FixedLenFeature([1], dtype=tf.int64),
           'audio': tf.FixedLenFeature([length], dtype=tf.float32),
           'qualities': tf.FixedLenFeature([10], dtype=tf.int64),
           'instrument_source': tf.FixedLenFeature([1], dtype=tf.int64),
@@ -121,16 +125,17 @@ class NSynthTFRecordDataset(BaseDataset):
       }
 
       example = tf.parse_single_example(record, features)
-      wave, label = example['audio'], example['pitch']
+      wave, pitch, velocity = example['audio'], example['pitch'], example['velocity']
       wave = spectral_ops.crop_or_pad(wave[tf.newaxis, :, tf.newaxis],
                                       length,
                                       channels)[0]
       pitch_one_hot_label = tf.one_hot(
-          label_index_table.lookup(label), depth=len(pitches))[0]
+          label_index_table.lookup(pitch), depth=len(pitches))[0]
+      velocity_one_hot_label = tf.one_hot(velocity, depth=128)[0]
       #Todo remove hardcoded instrument family count
       instrument_one_hot_label = tf.one_hot(
           example['instrument_family'], depth=11)[0]
-      return wave, pitch_one_hot_label, instrument_one_hot_label, label, example['instrument_source']
+      return wave, (pitch_one_hot_label, instrument_one_hot_label, velocity_one_hot_label), pitch, example['instrument_source']
 
     dataset = self._get_dataset_from_path()
     dataset = dataset.map(_parse_nsynth, num_parallel_calls=4)
@@ -138,11 +143,11 @@ class NSynthTFRecordDataset(BaseDataset):
     # Filter just specified instrument sources
     def _is_wanted_source(s):
       return tf.reduce_any(list(map(lambda q: tf.equal(s, q)[0], self._instrument_sources)))
-    dataset = dataset.filter(lambda w, pl, il, p, s: _is_wanted_source(s))
+    dataset = dataset.filter(lambda w, l, p, s: _is_wanted_source(s))
     # Filter just specified pitches
-    dataset = dataset.filter(lambda w, pl, il, p, s: tf.greater_equal(p, self._min_pitch)[0])
-    dataset = dataset.filter(lambda w, pl, il, p, s: tf.less_equal(p, self._max_pitch)[0])
-    dataset = dataset.map(lambda w, pl, il, p, s: (w, pl, il))
+    dataset = dataset.filter(lambda w, l, p, s: tf.greater_equal(p, self._min_pitch)[0])
+    dataset = dataset.filter(lambda w, l, p, s: tf.less_equal(p, self._max_pitch)[0])
+    dataset = dataset.map(lambda w, l, p, s: (w,) + l)
     return dataset
 
   def get_pitch_counts(self):

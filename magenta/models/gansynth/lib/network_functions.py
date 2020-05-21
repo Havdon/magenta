@@ -78,6 +78,9 @@ def discriminator_fn_specgram(images, **kwargs):
         x=x, units=kwargs['pitch_num_tokens'], scope='pitch_classification_logits')
     end_points['instrument_classification_logits'] = layers.custom_dense(
         x=x, units=kwargs['instrument_num_tokens'], scope='instrument_classification_logits')
+    end_points['velocity_classification_logits'] = layers.custom_dense(
+        x=x, units=kwargs['velocity_num_tokens'], scope='velocity_classification_logits')
+
   return logits, end_points
 
 
